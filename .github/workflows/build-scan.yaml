@@ -1,111 +1,74 @@
-name: Build & Scan Containers
+name: Build & Scan with Sysdig (Docker Hub)
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
 
 permissions:
   contents: read
-  security-events: write   # if need to upload SARIF or similar
 
 jobs:
   build-and-scan:
     runs-on: ubuntu-latest
+
     env:
-      REGISTRY_HOST: ghcr.io
-      REGISTRY_NAMESPACE: myorg          # change to your org/user
-      VOTE_IMAGE: ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/vote:latest
-      WORKER_IMAGE: ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/worker:latest
-      RESULT_IMAGE: ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/result:latest
+      REGISTRY: docker.io
+      REPO: ${{ secrets.REGISTRY_USER }}
+      SYSDIG_SECURE_URL: ${{ secrets.SYSDIG_SECURE_URL }}
+      SYSDIG_SECURE_TOKEN: ${{ secrets.SYSDIG_SECURE_TOKEN }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+      - name: Checkout source
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
-      # Build vote
-      - name: Build vote image
-        uses: docker/build-push-action@v4
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
         with:
-          context: ./vote
-          file: ./vote/Dockerfile
-          tags: ${{ env.VOTE_IMAGE }}
-          push: false
-          load: true
-
-      # Build worker
-      - name: Build worker image
-        uses: docker/build-push-action@v4
-        with:
-          context: ./worker
-          file: ./worker/Dockerfile
-          tags: ${{ env.WORKER_IMAGE }}
-          push: false
-          load: true
-
-      # Build result
-      - name: Build result image
-        uses: docker/build-push-action@v4
-        with:
-          context: ./result
-          file: ./result/Dockerfile
-          tags: ${{ env.RESULT_IMAGE }}
-          push: false
-          load: true
-
-      # Run scan for vote
-      - name: Scan vote image
-        run: |
-          ./your-cli-scanner image ${{ env.VOTE_IMAGE }} --fail-on-findings
-        # optionally env vars, secrets, etc
-
-      # Run scan for worker
-      - name: Scan worker image
-        run: |
-          ./your-cli-scanner image ${{ env.WORKER_IMAGE }} --fail-on-findings
-
-      # Run scan for result
-      - name: Scan result image
-        run: |
-          ./your-cli-scanner image ${{ env.RESULT_IMAGE }} --fail-on-findings
-
-      # (Optional) push images if scans passed
-      - name: Login to registry
-        uses: docker/login-action@v2
-        with:
-          registry: ${{ env.REGISTRY_HOST }}
           username: ${{ secrets.REGISTRY_USER }}
           password: ${{ secrets.REGISTRY_TOKEN }}
 
+      # --- Build Containers ---
+      - name: Build vote image
+        run: docker build -t $REGISTRY/$REPO/vote:latest ./vote
+
+      - name: Build worker image
+        run: docker build -t $REGISTRY/$REPO/worker:latest ./worker
+
+      - name: Build result image
+        run: docker build -t $REGISTRY/$REPO/result:latest ./result
+
+      # --- Install Sysdig Scanner ---
+      - name: Install Sysdig CLI Scanner
+        run: |
+          curl -LO https://download.sysdig.com/scanning/sysdig-cli-scanner/latest/sysdig-cli-scanner-linux-amd64
+          chmod +x sysdig-cli-scanner-linux-amd64
+          sudo mv sysdig-cli-scanner-linux-amd64 /usr/local/bin/sysdig-cli-scanner
+          sysdig-cli-scanner --version
+
+      # --- Scan images ---
+      - name: Scan vote image
+        run: |
+          sysdig-cli-scanner --apiurl $SYSDIG_SECURE_URL --token $SYSDIG_SECURE_TOKEN $REGISTRY/$REPO/vote:latest
+
+      - name: Scan worker image
+        run: |
+          sysdig-cli-scanner --apiurl $SYSDIG_SECURE_URL --token $SYSDIG_SECURE_TOKEN $REGISTRY/$REPO/worker:latest
+
+      - name: Scan result image
+        run: |
+          sysdig-cli-scanner --apiurl $SYSDIG_SECURE_URL --token $SYSDIG_SECURE_TOKEN $REGISTRY/$REPO/result:latest
+
+      # --- Optional: Push images to Docker Hub (only if scans passed) ---
       - name: Push vote image
-        uses: docker/build-push-action@v4
-        with:
-          context: ./vote
-          file: ./vote/Dockerfile
-          tags: ${{ env.VOTE_IMAGE }}
-          push: true
-          load: false
+        run: docker push $REGISTRY/$REPO/vote:latest
 
       - name: Push worker image
-        uses: docker/build-push-action@v4
-        with:
-          context: ./worker
-          file: ./worker/Dockerfile
-          tags: ${{ env.WORKER_IMAGE }}
-          push: true
-          load: false
+        run: docker push $REGISTRY/$REPO/worker:latest
 
       - name: Push result image
-        uses: docker/build-push-action@v4
-        with:
-          context: ./result
-          file: ./result/Dockerfile
-          tags: ${{ env.RESULT_IMAGE }}
-          push: true
-          load: false
+        run: docker push $REGISTRY/$REPO/result:latest

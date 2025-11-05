@@ -63,8 +63,15 @@ jobs:
       
       # --- Scan images ---
       - name: Debug environment variables
+        env:
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          REPO: ${{ secrets.REGISTRY_USER }}
+          SYSDIG_SECURE_URL: ${{ secrets.SYSDIG_SECURE_URL }}
+          SYSDIG_SECURE_TOKEN: ${{ secrets.SYSDIG_SECURE_TOKEN }}      
         run: |
           echo "REGISTRY_USER = $REGISTRY_USER"
+          echo "REGISTRY_TOKEN (masked) = $REGISTRY_TOKEN"
           echo "REPO = $REPO"
           echo "SYSDIG_SECURE_URL = $SYSDIG_SECURE_URL"
           echo "SYSDIG_SECURE_TOKEN = $SYSDIG_SECURE_TOKEN"
